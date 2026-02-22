@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+web-react/node_modules/
+web-react/dist/
+
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+.DS_Store
+Thumbs.db
+
+tmp_*.txt
