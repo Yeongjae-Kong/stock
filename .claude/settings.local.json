@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(echo:*)",
+      "Bash(setx CLAUDE_CODE_MAX_OUTPUT_TOKENS:*)"
+    ]
+  }
+}

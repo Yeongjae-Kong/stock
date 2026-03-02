@@ -2,10 +2,11 @@
 
 ## 1. 제품 목표 및 범위
 - `React` + `FastAPI` 기반의 웹/모바일 친화형 종합 주식 분석 서비스를 구축한다.
-- 아래 3개 핵심 비즈니스를 우선 구현한다.
+- 아래 4개 핵심 비즈니스를 우선 구현한다.
 1. 특정 종목의 재무제표를 쉬운 언어로 설명하고, 산업 평균과 비교해 해자/인사이트를 제시한다(장단점 균형, 객관성 유지).
 2. 유동성/금리/물가/성장/지정학을 포함한 매크로 대시보드를 구성하고, 시장 방향성을 추론한다.
 3. 15분 주기의 금융 뉴스 수집과 2차 파급효과 추론을 통해 관련 산업/종목 아이디어를 제공한다.
+4. 6개월 주가 상승률 기반 모멘텀 스코어링으로 현재 뜨는 테마를 발굴하고, 밸류체인 리드-래그 분석을 통해 앞으로 떠오를 산업/종목을 근거와 함께 추천한다.
 - 초기부터 Google Login을 탑재한다.
 - Agent를 적극 활용하고, Skill 기반 도메인 지식 팩으로 품질을 점진 개선한다.
 
@@ -19,10 +20,11 @@
 ## 3. 상위 아키텍처
 
 ## 3.1 프론트엔드(React)
-- `App Shell`: 좌측 내비게이션(1/2/3) + 스무스 스크롤 앵커.
+- `App Shell`: 좌측 내비게이션(1/2/3/4) + 스무스 스크롤 앵커.
 - `Section 1`: 한국/미국 탭 + 종목 검색 + 재무 인사이트 패널.
 - `Section 2`: 매크로 패널(유동성/금리/물가/성장/원자재/지정학).
 - `Section 3`: 실시간 뉴스 카드 + 파생 이슈 키워드.
+- `Section 4`: 모멘텀 테마 카드(현재 뜨는 테마) + 리드-래그 추천 카드(앞으로 뜰 산업/종목).
 - `News Detail Page`: 요약, 원문 링크, 파생 이슈 및 영향 자산 심화 분석.
 - 모바일 우선 반응형 동작:
   - 좌측 내비게이션 -> 하단 탭 바/플로팅 섹션 스위처.
@@ -46,6 +48,11 @@
 - 시장/재무 데이터:
   - 미국: SEC 공시 + 시세/재무 데이터 제공자.
   - 한국: DART 공시 + 시세/재무 데이터 제공자.
+- 일별 OHLCV(모멘텀 스코어링용):
+  - 한국: `pykrx` (KRX 공식 데이터 기반, 무료). 종가/거래량 일별 수집.
+  - 미국: `yfinance` (Yahoo Finance 기반, 무료, `auto_adjust=True` 적용). 종가/거래량 일별 수집.
+  - 수집 주기: 일 1회 장 마감 후. 전종목 배치 처리 시 요청 간 딜레이 적용.
+  - 한계: yfinance는 Yahoo API 변경 시 중단 위험 있음. 장기적으로 유료 대안(Polygon.io 등) 검토.
 - 매크로 지표: FRED 계열 + 금리/원자재/변동성/유동성 소스.
 - 뉴스: 금융 뉴스 API + 신뢰 가능한 RSS 피드.
 - OAuth: Google Identity Platform.
@@ -63,6 +70,11 @@
 - `News Impact Agent`
   - 최신 뉴스에서 사건/개체를 추출한다.
   - 2차 파급 추론을 수행한다(원인 -> 전달 경로 -> 영향 자산).
+- `Idea Generation Agent`
+  - 모멘텀 상위 종목을 섹터/산업별로 클러스터링해 현재 테마를 도출한다.
+  - 뉴스·매크로 데이터와 교차 분석해 테마의 구조적 원인을 설명한다.
+  - 밸류체인 리드-래그 패턴을 적용해 아직 주가에 반영 안 된 후행 수혜 종목을 추천한다.
+  - 추천마다 근거(모멘텀 수치, 관련 뉴스, 밸류체인 관계)와 신뢰도를 함께 출력한다.
 - `Recommendation Guardrail Agent`
   - 근거 품질과 신뢰도를 검증한다.
   - 근거가 약한 투기성 출력은 차단한다.
@@ -75,6 +87,9 @@
 4. `liquidity-monitoring`
 5. `news-causal-impact-mapper`
 6. `equity-idea-ranking`
+   - 모멘텀 스코어 계산 공식 및 파라미터 기준.
+   - 밸류체인 리드-래그 패턴 레퍼런스(예: 반도체 장비→소재→완성품, 방산 대기업→부품사).
+   - 테마 클러스터링 휴리스틱.
 7. `report-writer-ko-en`
 
 Skill별 기본 구성:
@@ -120,6 +135,29 @@ Skill별 기본 구성:
    - 요약 + 원문 URL이 포함된 상세 페이지를 연다.
    - 왜 중요한지, 1차/2차 효과, 후보 티커를 심화 렌더링한다.
 
+## 5.4 기능 4: 모멘텀 기반 테마 발굴 및 선행 추천
+1. Scheduler가 일 1회 장 마감 후 전종목 일별 OHLCV를 수집한다.
+   - 한국: `pykrx`, 미국: `yfinance`
+2. 모멘텀 스코어를 계산해 `momentum_snapshots`에 저장한다.
+   - 6개월 수익률 (절대 상승률)
+   - 수익률 일관성 (월별 수익률 표준편차, 우상향 구간 비율)
+   - 거래량 확인 (최근 1개월 평균 vs 6개월 평균 비율)
+   - 변동성 조정 (일별 수익률 연환산 표준편차로 나누어 위험 대비 수익 정규화)
+3. 모멘텀 상위 종목을 섹터/산업 기준으로 클러스터링해 `sector_themes`에 저장한다.
+4. `Idea Generation Agent` 파이프라인:
+   - 현재 테마 식별: "어떤 섹터가 모멘텀 상위에 집중되어 있는가?"
+   - 구조적 원인 설명: 관련 뉴스·매크로 데이터와 교차 분석
+   - 리드-래그 매핑: 밸류체인 상 선행 섹터 → 후행 수혜 섹터/종목 도출
+     - 예: AI 반도체 강세 → AI 소프트웨어 → AI 도입 수혜 산업
+     - 예: 방산 대기업 강세 → 방산 부품사/소재
+     - 예: 원자재 가격 상승 → 관련 채굴/정제 기업
+   - 후행 종목 중 아직 모멘텀 스코어가 낮은(저평가 가능성) 종목을 필터링
+   - 추천 카드 생성: 근거(모멘텀 수치, 뉴스, 밸류체인 관계) + 신뢰도 포함
+5. `Recommendation Guardrail Agent`가 근거 품질을 검증한다.
+6. UI는 아래를 렌더링한다.
+   - 현재 뜨는 테마 카드 (테마명, 대표 종목, 상승률, 구조적 원인 요약)
+   - 앞으로 뜰 추천 카드 (추천 종목/산업, 밸류체인 근거, 신뢰도)
+
 ## 6. API 계약(v1 초안)
 - `POST /auth/google/login`
 - `GET /stocks/search?q=`
@@ -129,7 +167,10 @@ Skill별 기본 구성:
 - `GET /news/feed?limit=&cursor=`
 - `GET /news/{news_id}`
 - `GET /news/{news_id}/impact`
+- `GET /momentum/themes?market=KR|US` (현재 뜨는 테마 목록)
+- `GET /momentum/recommendations?market=KR|US` (리드-래그 기반 추천 목록)
 - `POST /jobs/rebuild-analysis` (admin/internal)
+- `POST /jobs/rebuild-momentum` (admin/internal)
 
 응답 엔벌로프 권장 구조:
 - `data`: 실제 응답 데이터
@@ -146,6 +187,10 @@ Skill별 기본 구성:
 - `macro_regime_snapshots(id, regime_label, factors_json, scenarios_json, as_of)`
 - `news_items(id, title, body, source_name, source_url, published_at, dedup_hash)`
 - `news_impacts(id, news_id, impacts_json, confidence, as_of)`
+- `price_history(id, symbol, market, date, open, high, low, close, volume, adj_close)` — 일별 OHLCV 누적, 모멘텀 계산 원천
+- `momentum_snapshots(id, symbol, market, return_6m, consistency_score, volume_ratio, volatility, momentum_score, as_of)` — 종목별 모멘텀 스코어
+- `sector_themes(id, market, theme_name, sector_code, top_symbols_json, avg_momentum_score, cause_summary, as_of)` — 클러스터링된 테마
+- `momentum_recommendations(id, market, rec_type, symbol, industry, rationale_json, lead_theme_id, confidence, as_of)` — 리드-래그 추천 결과
 
 ## 8. 오케스트레이션 로직(의사코드)
 ```text
@@ -164,6 +209,33 @@ job build_stock_analysis(symbol, market):
   llm_output = financial_agent.analyze(metrics, retrieved_context)
   validated = guardrail_agent.validate(llm_output, metrics)
   save_snapshot(validated)
+
+# 모멘텀 파이프라인 (일 1회 장 마감 후)
+job build_momentum(market):
+  symbols = get_stock_universe(market)
+  for symbol in symbols (with rate-limit delay):
+    ohlcv = fetch_daily_ohlcv(symbol, market, period="6mo")  # pykrx or yfinance
+    save_price_history(ohlcv)
+
+  for symbol in symbols:
+    history = get_price_history(symbol, market, months=6)
+    score = compute_momentum_score(
+      return_6m       = calc_return(history),
+      consistency     = calc_consistency(history),   # 우상향 구간 비율
+      volume_ratio    = calc_volume_ratio(history),  # 최근 1개월 / 6개월 평균
+      volatility      = calc_volatility(history),    # 연환산 표준편차
+    )
+    save_momentum_snapshot(symbol, market, score)
+
+  themes = cluster_by_sector(top_momentum_symbols(market, top_n=50))
+  for theme in themes:
+    cause = news_macro_crossref(theme)  # 뉴스·매크로 교차 분석
+    save_sector_theme(theme, cause)
+
+  recommendations = idea_generation_agent.run(themes, value_chain_map)
+  for rec in recommendations:
+    validated = guardrail_agent.validate(rec)
+    save_momentum_recommendation(validated)
 ```
 
 ## 9. 프론트엔드 UX 구성
@@ -171,6 +243,7 @@ job build_stock_analysis(symbol, market):
   - `1. 종목 분석`
   - `2. 거시/매크로`
   - `3. 실시간 뉴스`
+  - `4. 테마 추천`
 - 스무스 스크롤 + 현재 섹션 하이라이트.
 - Section 1 상단:
   - KR/US 세그먼트 탭
@@ -218,7 +291,10 @@ job build_stock_analysis(symbol, market):
 - 매크로 수집, 국면 분류, 시나리오 대시보드.
 4. Phase 3 (2~3주): 기능 3 MVP
 - 15분 뉴스 파이프라인, 임팩트 추론, 뉴스 상세 심화 화면.
-5. Phase 4 (지속): 품질 고도화
+5. Phase 4 (2~3주): 기능 4 MVP
+- 일별 OHLCV 수집 파이프라인(pykrx/yfinance), 모멘텀 스코어 계산.
+- 섹터 테마 클러스터링, Idea Generation Agent, 추천 카드 UI.
+6. Phase 5 (지속): 품질 고도화
 - 스코어 보정, 아이디어 백테스트, UX 다듬기, 모바일 최적화.
 
 ## 13. 즉시 착수 작업
